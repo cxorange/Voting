@@ -10,34 +10,118 @@ import voting_artifacts from '../../build/contracts/Voting.json'
 
 // Voting is our usable abstraction, which we'll use through the code below.
 var Voting = contract(voting_artifacts);
-let candidates = {"Rama" : "candidate-1","Nick":"candidate-2","Lasa":"candidate-3"};
+let tokenPrice = null;
+let candidates = {};
 
 window.voteForCandidate = function(candidate){
   let candidateName = $("#candidate").val();
+  let voteToken = $("#vote-tokens").val();
 
-  try{
-    $("msg").html("Vote has been submitted. The vote count will increment as soon as the vote is recorded on the blockchain. Please wait.");
-    $("#candidate").val("");
-    /* Voting.deployed() returns an instance of the contract. Every call
-     * in Truffle returns a promise which is why we have used then()
-     * everywhere we have a transaction call
-     */
-     Voting.deployed().then(function(contractInstance){
-        console.log(web3.eth.accounts[0]);
-        contractInstance.voteForCandidate(candidateName, {gas:140000,from:web3.eth.accounts[0]}).then(function(){
-          let div_id = candidates[candidateName];
-          return contractInstance.totalVotesFor(candidateName).then(function(value){
-            console.log('=======' + value + "=========");
-             $('#' + div_id).html(value.toString());
-             $("#msg").html("");
-          });
-        });
-     });
-  }catch(err){
-    console.log(err);
+  $("#msg").html("Vote has been submitted.The vote count will increment as soon as the vote is recorded on the blockchain.Please wait.");
+  $("#candidate").val("");
+  $("#vote-tokens").val("");
+
+  Voting.deployed().then(function(contractInstance){
+    contractInstance.voteForCandidate(candidateName, voteToken,{gas:470000, from:web3.eth.accounts[0]}).then(function(){
+      return contractInstance.totalVotesFor.call(candidateName).then(function(v) {
+        $("#" + div_id).html(v.toString());
+        $("#msg").html("");
+      });
+    });
+  })
+}
+
+
+window.buyTokens = function(){
+  let tokensToBuy = $("#buy").val();
+  let price = tokensToBuy * tokenPrice;
+
+  $("#buy-msg").html("Purchase order has been submitted. Please wait.");
+
+  Voting.deployed().then(function(contractInstance){
+    contractInstance.buy({value: web3.toWei(price, 'ether'),from: web3.eth.accounts[0]}).then(function(v){
+      $("#buy-msg").html("");
+      web3.eth.getBalance(contractInstance.address, function(err, result){
+        $("#contract-balance").html(web3.fromWei(result.toString()) + "Ether");
+      });
+    })
+  });
+
+}
+
+window.lookupVoterInfo = function(){
+  let address = $("#voter-info").val();
+
+  Voting.deployed().then(function(contractInstance){
+    contractInstance.voterDetails.call(address).then(function(value){
+      $("#tokens-bought").html("Total Tokens bought:" + value[0].toString());
+
+      let votersPerCandidate = value[1];
+
+      $("#votes-cast").empty();
+      $("#votes-cast").append("Votes cast per candidate: <br>");
+      let allCandidates = Object.keys(candidates);
+      for (var i = 0; i < allCandidates.length; i++) {
+        $("#votes-cast").append(allCandidates[i] + "：" + votersPerCandidate[i] + "<br>");
+      }
+    });
+  });
+}
+//创建候选人行数
+function setupCandidateRows(){
+  console.log(candidates);
+  Object.keys(candidates).forEach(function(candidate){
+    $("#candidate-rows").append("<tr><td>"+candidate +"</td><td id='"+ candidates[candidate] + "''></td></tr>")
+  });
+}
+
+function populateCandidateVotes(){
+  let candidateNames = Object.keys(candidates);
+
+  for (var i = 0; i < candidateNames.length; i++) {
+    let name = candidateNames[i];
+    Voting.deployed().then(function(contractInstance){
+      contractInstance.totalVotesFor.call(name).then(function(value){
+        $("#" + candidates[name]).html(value.toString());
+      });
+    });
   }
 }
 
+function populateTokenData(){
+  Voting.deployed().then(function(contractInstance){
+    contractInstance.totalTokens().then(function(value){
+      $("#tokens-total").html(value.toString());
+    });
+
+    contractInstance.tokensSold.call().then(function(value){
+      $("#tokens-sold").html(value.toString());
+    });
+
+    contractInstance.tokenPrice().then(function(value){
+      tokenPrice = parseFloat(web3.fromWei(value.toString()));
+      $("#token-cost").html(tokenPrice + "Ether");
+    });
+
+    web3.eth.getBalance(contractInstance.address, function(err, result){
+      $("#contract-balance").html(web3.fromWei(result.toString()) + 'Ether');
+    });
+  });
+}
+
+function populateCandidates(){
+  Voting.deployed().then(function(contractInstance){
+    contractInstance.allCandidate.call().then(function(candidateArray){
+      for (var i = 0; i < candidateArray.length; i++) {
+        candidates[web3.toUtf8(candidateArray[i])] = "candidate-" + i; 
+      }
+
+      setupCandidateRows();
+      populateCandidateVotes();
+      populateTokenData();
+    });
+  });
+}
 $(document).ready(function(){
   if (typeof web3 !== 'undefined') {
      console.log("Using web3 detected from external source like Metamask");
@@ -49,14 +133,5 @@ $(document).ready(function(){
   }
   Voting.setProvider(web3.currentProvider);
 
-  let candidatesNames = Object.keys(candidates);
-
-  for (var i = 0; i < candidatesNames.length; i++) {
-    let name = candidatesNames[i];
-    Voting.deployed().then(function(contractInstance){
-       contractInstance.totalVotesFor(name).then(function(value){
-         $('#' + candidates[name]).html(value.toString());
-       });
-    })
-  }
+  populateCandidates();
 });
